@@ -6,6 +6,7 @@ import android.os.Build;
 import java.util.List;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.XposedHelpers;
 import tk.wasdennnoch.androidn_ify.XposedHook;
 import tk.wasdennnoch.androidn_ify.settings.summaries.categories.DeviceTweaks;
@@ -18,6 +19,8 @@ import tk.wasdennnoch.androidn_ify.utils.StringUtils;
 public class SummaryTweaks {
 
     private static final String TAG = "SummaryTweaks";
+    private static boolean sFixSoundNotifTile;
+    //private static Handler sHandler;
 
     // All tiles. Tiles without a subtitle are commented out to improve performance.
     // They will be removed completely in the near future.
@@ -53,7 +56,7 @@ public class SummaryTweaks {
     // SYSTEM
     private static int date_time_settings;
     //private static int accessibility_settings;
-    private static int print_settings;
+    //private static int print_settings; // TODO Temporary disabled, takes very long time to process, async required
     //private static int development_settings;
     private static int about_settings;
 
@@ -73,24 +76,36 @@ public class SummaryTweaks {
     //private static int privacy_settings_cyanogenmod;
     //private static int supersu_settings;
 
-    public static void afterLoadCategoriesFromResource(XC_MethodHook.MethodHookParam param) {
-        long startTime = System.currentTimeMillis();
+    /*public static void afterOnCreate(XC_MethodHook.MethodHookParam param) {
+        sHandler = (Handler) XposedHelpers.getObjectField(param.thisObject, "mHandler");
+    }*/
 
-        Context context;
-        if (Build.VERSION.SDK_INT >= 23)
-            context = (Context) param.args[2];
-        else
-            context = (Context) param.thisObject; // Surrounding activity
+    public static void afterLoadCategoriesFromResource(XC_MethodHook.MethodHookParam param, XSharedPreferences prefs) {
+        try {
+            long startTime = System.currentTimeMillis();
 
-        List target = (List) param.args[1];
+            prefs.reload();
+            sFixSoundNotifTile = prefs.getBoolean("fix_sound_notif_tile", false);
 
-        setupIds(context);
+            Context context;
+            if (Build.VERSION.SDK_INT >= 23)
+                context = (Context) param.args[2];
+            else
+                context = (Context) param.thisObject; // Surrounding activity
 
-        for (Object category : target) {
-            setSummaries((List) XposedHelpers.getObjectField(category, "tiles"), context);
+            List target = (List) param.args[1];
+
+            setupIds(context);
+            StringUtils.getInstance(context); // Setup instance
+
+            for (Object category : target) {
+                setSummaries((List) XposedHelpers.getObjectField(category, "tiles"), context);
+            }
+
+            XposedHook.logD(TAG, "Total afterLoadCategoriesFromResource hook took " + (System.currentTimeMillis() - startTime) + "ms");
+        } catch (Throwable t) {
+            XposedHook.logE(TAG, "Error in afterLoadCategoriesFromResource", t);
         }
-
-        XposedHook.logD(TAG, "Total hook took " + (System.currentTimeMillis() - startTime) + "ms");
     }
 
     private static void setupIds(Context context) {
@@ -123,7 +138,7 @@ public class SummaryTweaks {
 
         date_time_settings = getId(context, "date_time_settings");
         //accessibility_settings = getId(context, "accessibility_settings");
-        print_settings = getId(context, "print_settings");
+        //print_settings = getId(context, "print_settings");
         //development_settings = getId(context, "development_settings");
         about_settings = getId(context, "about_settings");
 
@@ -148,7 +163,6 @@ public class SummaryTweaks {
         int id;
         String tileId;
         long startTime;
-        new StringUtils(context);
         for (Object tile : tiles) {
             id = (int) XposedHelpers.getLongField(tile, "id");
             if (id == -1)
@@ -179,7 +193,10 @@ public class SummaryTweaks {
                 DeviceTweaks.hookDisplayTile(tile, context);
             } else if (id == notification_settings) {
                 tileId = "notification_settings";
-                DeviceTweaks.hookNotificationTile(tile, context);
+                if (!sFixSoundNotifTile)
+                    DeviceTweaks.hookNotificationTile(tile, context);
+                else
+                    DeviceTweaks.hookSoundTile(tile, context);
             } else if (id == sound_settings) {
                 tileId = "sound_settings";
                 DeviceTweaks.hookSoundTile(tile, context);
@@ -223,9 +240,9 @@ public class SummaryTweaks {
                 SystemTweaks.hookDateTimeTile(tile);
                 //} else if (id == accessibility_settings) {
                 //    XposedHelpers.setObjectField(tile, "summary", "accessibility_settings");
-            } else if (id == print_settings) {
-                tileId = "print_settings";
-                SystemTweaks.hookPrintTile(tile, context);
+            //} else if (id == print_settings) {
+            //    tileId = "print_settings";
+            //    SystemTweaks.hookPrintTile(tile, context);
                 //} else if (id == development_settings) {
                 //    XposedHelpers.setObjectField(tile, "summary", "development_settings");
             } else if (id == about_settings) {
